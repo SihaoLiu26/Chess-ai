@@ -1,0 +1,1830 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>国际象棋 AI 助手</title>
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@600;700;900&family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Sans+Symbols+2&display=swap">
+<script src="https://fastly.jsdelivr.net/npm/chess.js@0.10.3/chess.min.js"></script>
+<script>if(typeof Chess==='undefined'){document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"><\/script>');}</script>
+<style>
+:root{
+  --bg:#161a20; --bg2:#1e242d; --panel:#232b36; --panel2:#2a3442;
+  --line:#39455566; --txt:#e8e6e1; --txt2:#9aa5b1; --gold:#d4a94e; --gold2:#f0c878;
+  --green:#7fb069; --red:#e06c5f;
+  --sq-light:#f0d9b5; --sq-dark:#b58863;
+  --hl-last:rgba(155,199,0,.42); --hl-sel:rgba(20,85,30,.5);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg); color:var(--txt);
+  font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  min-height:100vh;
+  background-image:radial-gradient(1200px 600px at 80% -10%, #2a3550 0%, transparent 60%),
+                   radial-gradient(900px 500px at -10% 110%, #23301f 0%, transparent 55%);
+}
+.serif{font-family:"Noto Serif SC","Noto Sans SC",serif}
+button{font-family:inherit;cursor:pointer}
+
+/* ===== 顶部导航 ===== */
+header{
+  position:sticky;top:0;z-index:50;
+  background:rgba(22,26,32,.92);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.nav{max-width:1180px;margin:0 auto;display:flex;align-items:center;gap:22px;padding:12px 20px}
+.logo{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:900;letter-spacing:1px}
+.logo .knight{
+  font-family:"Noto Sans Symbols 2","Segoe UI Symbol",serif;
+  font-size:30px;color:var(--gold2);line-height:1;
+}
+.logo small{font-size:11px;color:var(--txt2);font-weight:400;letter-spacing:2px;display:block}
+.tabs{display:flex;gap:6px;margin-left:auto}
+.tab{
+  background:none;border:1px solid transparent;color:var(--txt2);
+  padding:8px 18px;border-radius:999px;font-size:15px;transition:.2s;
+}
+.tab:hover{color:var(--txt)}
+.tab.active{background:var(--gold);color:#1a1408;font-weight:700}
+main{max-width:1180px;margin:0 auto;padding:26px 20px 60px}
+.view{display:none}
+.view.active{display:block;animation:fadein .3s ease}
+@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ===== 棋盘通用 ===== */
+.board-wrap{position:relative;width:100%;}
+.board{
+  display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);
+  width:100%;aspect-ratio:1/1;border-radius:8px;overflow:hidden;
+  box-shadow:0 12px 40px rgba(0,0,0,.5), 0 0 0 6px #3d2b1f, 0 0 0 7px #5a4230;
+  container-type:inline-size;
+  user-select:none;-webkit-user-select:none;touch-action:manipulation;
+}
+.sq{position:relative;display:flex;align-items:center;justify-content:center}
+.sq.light{background:var(--sq-light)}
+.sq.dark{background:var(--sq-dark)}
+.sq.clickable{cursor:pointer}
+.sq .coord{position:absolute;font-size:10px;font-size:2.4cqw;font-weight:700;opacity:.75;pointer-events:none}
+.sq .coord.file{right:4%;bottom:2%}
+.sq .coord.rank{left:4%;top:2%}
+.sq.light .coord{color:#b58863}
+.sq.dark .coord{color:#f0d9b5}
+.sq.lastmove::before{content:"";position:absolute;inset:0;background:var(--hl-last)}
+.sq.selected::before{content:"";position:absolute;inset:0;background:var(--hl-sel)}
+.sq.check::before{content:"";position:absolute;inset:0;background:radial-gradient(circle,rgba(255,0,0,.65) 0%,rgba(231,76,60,.4) 55%,transparent 78%)}
+.sq.hintflash::before{content:"";position:absolute;inset:0;background:rgba(80,160,255,.55);animation:pulse .5s ease infinite alternate}
+@keyframes pulse{from{opacity:.4}to{opacity:1}}
+.piece{
+  position:relative;z-index:2;line-height:1;pointer-events:none;
+  font-family:"Noto Sans Symbols 2","Segoe UI Symbol","DejaVu Sans",serif;
+  font-size:36px;font-size:9.2cqw;
+  transition:transform .1s;
+}
+.piece.w{color:#fafafa;-webkit-text-stroke:1px #4a4a4a;text-shadow:0 2px 3px rgba(0,0,0,.45)}
+.piece.b{color:#222;-webkit-text-stroke:1px #000;text-shadow:0 2px 3px rgba(0,0,0,.35)}
+.sq.clickable:hover .piece{transform:scale(1.08)}
+.dot{position:absolute;z-index:3;width:30%;height:30%;border-radius:50%;background:rgba(20,60,20,.32);pointer-events:none}
+.ring{position:absolute;z-index:3;inset:4%;border-radius:50%;border:4px solid rgba(20,60,20,.35);pointer-events:none}
+.marker-x{position:absolute;z-index:3;inset:0;display:flex;align-items:center;justify-content:center;font-size:24px;font-size:6cqw;color:rgba(200,30,30,.8);pointer-events:none;font-weight:900}
+
+/* ===== 教程视图 ===== */
+.tut-layout{display:grid;grid-template-columns:250px 1fr;gap:24px;align-items:start}
+.lesson-nav{
+  background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:14px;position:sticky;top:78px;
+}
+.lesson-nav h3{font-size:13px;color:var(--txt2);letter-spacing:2px;margin:4px 6px 10px}
+.lesson-item{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  background:none;border:none;color:var(--txt2);padding:9px 10px;border-radius:9px;font-size:14px;transition:.15s;
+}
+.lesson-item:hover{background:var(--panel2);color:var(--txt)}
+.lesson-item.active{background:#3a3320;color:var(--gold2);font-weight:700}
+.lesson-item .num{
+  width:22px;height:22px;flex:0 0 22px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:12px;background:var(--panel2);color:var(--txt2);
+}
+.lesson-item.active .num{background:var(--gold);color:#1a1408}
+.lesson-item.done .num{background:#2f4a2a;color:#8fce7f}
+.lesson-body{
+  background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:30px 34px;min-height:500px;
+}
+.lesson-body h2{font-size:26px;margin-bottom:4px;color:var(--gold2)}
+.lesson-body .sub{color:var(--txt2);font-size:13px;margin-bottom:20px;letter-spacing:1px}
+.lesson-body p{line-height:1.9;margin-bottom:12px;font-size:15px;color:#d5d2cb}
+.lesson-body ul,.lesson-body ol{margin:0 0 14px 22px;line-height:1.9;font-size:15px;color:#d5d2cb}
+.lesson-body li{margin-bottom:5px}
+.lesson-body b,.lesson-body strong{color:var(--gold2);font-weight:700}
+.tipbox{
+  background:#2b3424;border:1px solid #4a5a3a;border-radius:10px;
+  padding:12px 16px;margin:14px 0;font-size:14px;line-height:1.8;color:#c8d8b8;
+}
+.tipbox.warn{background:#3a2b24;border-color:#6a4a3a;color:#e8c8b0}
+.lesson-cols{display:grid;grid-template-columns:1fr minmax(280px,400px);gap:28px;align-items:start}
+.demo-side{display:flex;flex-direction:column;gap:12px}
+.demo-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.demo-goal{font-size:13px;color:var(--txt2);line-height:1.7}
+.demo-success{
+  background:#26402a;border:1px solid #4a7a4a;color:#a8e0a0;border-radius:10px;
+  padding:10px 14px;font-size:14px;display:none;
+}
+.demo-success.show{display:block;animation:fadein .3s}
+.piece-tabs{display:flex;gap:6px;flex-wrap:wrap}
+.piece-tab{
+  background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+  border-radius:9px;padding:6px 12px;font-size:14px;display:flex;align-items:center;gap:6px;
+}
+.piece-tab .g{font-family:"Noto Sans Symbols 2","Segoe UI Symbol",serif;font-size:18px}
+.piece-tab.active{background:var(--gold);color:#1a1408;font-weight:700;border-color:var(--gold)}
+.btn{
+  background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+  padding:8px 16px;border-radius:9px;font-size:14px;transition:.15s;
+}
+.btn:hover{border-color:var(--gold);color:var(--gold2)}
+.btn.primary{background:var(--gold);border-color:var(--gold);color:#1a1408;font-weight:700}
+.btn.primary:hover{background:var(--gold2);color:#1a1408}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.lesson-footer{display:flex;justify-content:space-between;margin-top:26px;padding-top:18px;border-top:1px solid var(--line)}
+.progress-text{color:var(--txt2);font-size:13px;align-self:center}
+
+/* 测验 */
+.quiz-q{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+.quiz-q h4{font-size:15px;margin-bottom:12px}
+.quiz-opts{display:flex;flex-direction:column;gap:8px}
+.quiz-opt{
+  text-align:left;background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+  padding:9px 14px;border-radius:8px;font-size:14px;transition:.15s;
+}
+.quiz-opt:hover:not(:disabled){border-color:var(--gold)}
+.quiz-opt.correct{background:#26402a;border-color:#4a7a4a;color:#a8e0a0}
+.quiz-opt.wrong{background:#402626;border-color:#7a4a4a;color:#e0a0a0}
+.quiz-opt:disabled{cursor:default;opacity:.85}
+.quiz-expl{font-size:13px;color:var(--txt2);margin-top:10px;display:none;line-height:1.7}
+.quiz-expl.show{display:block}
+.quiz-score{font-size:18px;font-weight:700;color:var(--gold2);margin:10px 0;display:none}
+.quiz-score.show{display:block}
+
+/* ===== 对弈视图 ===== */
+.play-layout{display:grid;grid-template-columns:1fr 320px;gap:26px;align-items:start}
+.play-main{max-width:640px}
+.player-bar{
+  display:flex;align-items:center;gap:10px;padding:10px 4px;font-size:14px;
+}
+.player-bar .avatar{
+  width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  font-size:19px;background:var(--panel2);border:1px solid var(--line);
+  font-family:"Noto Sans Symbols 2","Segoe UI Symbol",serif;
+}
+.player-bar .who{font-weight:700}
+.player-bar .captured{display:flex;gap:1px;flex-wrap:wrap;font-family:"Noto Sans Symbols 2","Segoe UI Symbol",serif;font-size:17px;color:var(--txt2)}
+.player-bar .adv{font-size:12px;color:var(--green);font-weight:700}
+.player-bar .turn-dot{width:9px;height:9px;border-radius:50%;background:#555;margin-left:auto;flex:0 0 9px}
+.player-bar .turn-dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+.thinking{font-size:12px;color:var(--gold2);display:none;align-items:center;gap:6px}
+.thinking.show{display:flex}
+.spinner{width:12px;height:12px;border:2px solid var(--gold);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.status-line{
+  text-align:center;padding:9px;font-size:14px;border-radius:9px;margin:6px 0;
+  background:var(--panel);border:1px solid var(--line);color:var(--txt2);min-height:38px;
+}
+.status-line.check{color:#ffb0a0;border-color:#7a4a3a;background:#3a2620}
+.status-line.good{color:#a8e0a0;border-color:#4a7a4a;background:#26402a}
+
+/* 终局遮罩 */
+.gameover{
+  position:absolute;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
+  background:rgba(10,12,16,.72);backdrop-filter:blur(3px);border-radius:8px;
+}
+.gameover.show{display:flex;animation:fadein .35s}
+.gameover-card{
+  background:var(--panel);border:1px solid var(--gold);border-radius:16px;
+  padding:30px 40px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.6);
+}
+.gameover-card .big{font-size:40px;margin-bottom:8px}
+.gameover-card h3{font-size:22px;color:var(--gold2);margin-bottom:6px}
+.gameover-card p{color:var(--txt2);font-size:14px;margin-bottom:18px}
+
+/* 侧栏 */
+.side-panel{display:flex;flex-direction:column;gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+.card h3{font-size:13px;color:var(--txt2);letter-spacing:2px;margin-bottom:12px}
+.diff-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.diff-btn{
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:10px 8px;text-align:center;color:var(--txt);transition:.15s;
+}
+.diff-btn .emoji{font-size:20px;display:block;margin-bottom:3px}
+.diff-btn .name{font-size:14px;font-weight:700}
+.diff-btn .desc{font-size:11px;color:var(--txt2);margin-top:2px;line-height:1.4}
+.diff-btn.active{border-color:var(--gold);background:#3a3320}
+.diff-btn.active .name{color:var(--gold2)}
+.color-row{display:flex;gap:8px;margin-top:4px}
+.color-btn{
+  flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+  padding:8px;color:var(--txt);font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px;
+}
+.color-btn .g{font-family:"Noto Sans Symbols 2","Segoe UI Symbol",serif;font-size:17px}
+.color-btn.active{border-color:var(--gold);background:#3a3320;color:var(--gold2);font-weight:700}
+.side-note{font-size:11px;color:var(--txt2);margin-top:10px;line-height:1.6}
+.action-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.hist-card{max-height:260px;display:flex;flex-direction:column}
+.hist{overflow-y:auto;font-size:13px;line-height:1.5;flex:1;scrollbar-width:thin}
+.hist table{width:100%;border-collapse:collapse}
+.hist td{padding:3px 8px;border-radius:4px}
+.hist td.no{color:var(--txt2);width:34px}
+.hist td.mv{font-family:Consolas,monospace;cursor:default}
+.hist tr:last-child td.mv{color:var(--gold2)}
+.hist .empty{color:var(--txt2);padding:8px}
+
+/* ===== AI 助手视图 ===== */
+.chat-layout{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.chat-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column}
+.chat-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;flex-wrap:wrap}
+.chat-head h3{font-size:16px;color:var(--gold2)}
+.chat-head .tools{display:flex;gap:8px;flex-wrap:wrap}
+.chat-head .btn{padding:6px 12px;font-size:13px}
+#chat-list{overflow-y:auto;height:56vh;min-height:320px;display:flex;flex-direction:column;gap:12px;padding:4px 2px;scroll-behavior:smooth}
+.msg{display:flex;gap:10px;align-items:flex-start}
+.msg .avatar{width:32px;height:32px;border-radius:50%;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.msg .bubble{max-width:82%;border-radius:12px;padding:10px 14px;font-size:14px;line-height:1.85}
+.msg.user{flex-direction:row-reverse}
+.msg.user .bubble{background:#3a3320;color:#e8e0c8;border:1px solid #5a4d2a;white-space:pre-wrap;word-break:break-word}
+.msg.ai .bubble{background:var(--bg2);border:1px solid var(--line);color:#d5d2cb}
+.msg .bubble .attach{display:inline-block;margin-top:6px;font-size:12px;color:var(--txt2);background:var(--panel2);border-radius:6px;padding:2px 8px}
+.msg .bubble pre{background:var(--panel2);border-radius:8px;padding:8px 10px;overflow-x:auto;font-family:Consolas,monospace;font-size:13px;margin:6px 0;white-space:pre-wrap}
+.chat-empty{color:var(--txt2);font-size:14px;text-align:center;margin:auto;line-height:2}
+.chat-chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:10px}
+.chat-chips button{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:20px;padding:6px 14px;font-size:13px;cursor:pointer}
+.chat-chips button:hover{border-color:var(--gold);color:var(--gold2)}
+.chat-input-row{display:flex;gap:10px;margin-top:12px;align-items:flex-end}
+#chat-input{flex:1;background:var(--bg2);border:1px solid var(--line);border-radius:10px;color:var(--txt);padding:10px 14px;font-size:14px;font-family:inherit;resize:vertical;min-height:48px;max-height:180px;line-height:1.6}
+#chat-input:focus{outline:none;border-color:var(--gold)}
+#chat-send{white-space:nowrap}
+.chat-status{font-size:12px;color:var(--txt2);min-height:18px;margin-top:6px}
+.report{font-size:14px;line-height:1.85;color:#d5d2cb}
+.report h4{color:var(--gold2);margin:12px 0 6px;font-size:15px}
+.report ul{margin:4px 0 8px 20px}
+.report li{margin-bottom:4px}
+.report code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-family:Consolas,monospace;color:var(--gold2)}
+.report .err{color:#e0a0a0;background:#402626;border:1px solid #7a4a4a;border-radius:10px;padding:12px 14px;line-height:1.7}
+.report .loading{color:var(--txt2)}
+.report .empty{color:var(--txt2)}
+.api-field{width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:8px;color:var(--txt);padding:9px 12px;font-size:13px;font-family:Consolas,monospace;margin:6px 0}
+.api-field:focus{outline:none;border-color:var(--gold)}
+select.api-field{font-family:inherit}
+
+/* 升变弹窗 */
+.modal{
+  position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;
+  background:rgba(10,12,16,.7);backdrop-filter:blur(3px);
+}
+.modal.show{display:flex}
+.modal-card{background:var(--panel);border:1px solid var(--gold);border-radius:16px;padding:24px 28px;text-align:center}
+.modal-card h3{color:var(--gold2);margin-bottom:16px;font-size:17px}
+.promo-row{display:flex;gap:12px}
+.promo-btn{
+  width:64px;height:64px;font-size:40px;border-radius:12px;background:var(--sq-light);
+  border:2px solid var(--sq-dark);display:flex;align-items:center;justify-content:center;
+  font-family:"Noto Sans Symbols 2","Segoe UI Symbol",serif;line-height:1;
+}
+.promo-btn:hover{border-color:var(--gold);transform:scale(1.06)}
+.promo-btn span.w{color:#fafafa;-webkit-text-stroke:1px #4a4a4a}
+.promo-btn span.b{color:#222;-webkit-text-stroke:1px #000}
+
+footer{max-width:1180px;margin:0 auto;padding:0 20px 30px;color:#5a6572;font-size:12px;text-align:center;line-height:1.8}
+
+#load-error{display:none;background:#402626;border:1px solid #7a4a4a;color:#e0a0a0;border-radius:10px;padding:14px 18px;margin-bottom:20px;font-size:14px}
+
+@media (max-width:960px){
+  .tut-layout{grid-template-columns:1fr}
+  .lesson-nav{position:static;display:flex;flex-wrap:wrap;gap:4px}
+  .lesson-nav h3{width:100%}
+  .lesson-item{width:auto;padding:7px 10px}
+  .lesson-item .lbl{display:none}
+  .lesson-item.active .lbl{display:inline}
+  .lesson-cols{grid-template-columns:1fr}
+  .play-layout{grid-template-columns:1fr}
+  .play-main{margin:0 auto;width:100%}
+  .lesson-body{padding:22px 18px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <nav class="nav">
+    <div class="logo serif">
+      <span class="knight">♞</span>
+      <span>国际象棋 AI 助手<small>CHESS COACH &amp; ARENA</small></span>
+    </div>
+    <div class="tabs">
+      <button class="tab" id="tab-tutorial" onclick="location.hash='#tutorial'">📖 新手教程</button>
+      <button class="tab" id="tab-play" onclick="location.hash='#play'">⚔️ AI 对练</button>
+      <button class="tab" id="tab-assistant" onclick="location.hash='#assistant'">🤖 AI 助手</button>
+    </div>
+  </nav>
+</header>
+
+<main>
+<div id="load-error">⚠️ 棋盘规则引擎（chess.js）加载失败。本页面首次打开需要联网加载该库，请检查网络后刷新重试。</div>
+
+<!-- ===== 视图：新手教程 ===== -->
+<section class="view" id="view-tutorial">
+  <div class="tut-layout">
+    <aside class="lesson-nav" id="lesson-nav">
+      <h3>课程目录</h3>
+    </aside>
+    <div class="lesson-body" id="lesson-body"></div>
+  </div>
+</section>
+
+<!-- ===== 视图：AI 对练 ===== -->
+<section class="view" id="view-play">
+  <div class="play-layout">
+    <div class="play-main">
+      <div class="player-bar" id="bar-top"></div>
+      <div class="board-wrap">
+        <div class="board" id="play-board"></div>
+        <div class="gameover" id="gameover">
+          <div class="gameover-card">
+            <div class="big" id="go-emoji">🏆</div>
+            <h3 id="go-title"></h3>
+            <p id="go-desc"></p>
+            <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+              <button class="btn" onclick="askAssistantAboutGame()">🤖 让助手分析本局</button>
+              <button class="btn primary" onclick="newGame()">再来一局</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="status-line" id="status-line">选择难度与执子颜色，开始对局</div>
+      <div class="player-bar" id="bar-bottom"></div>
+    </div>
+    <div class="side-panel">
+      <div class="card">
+        <h3>AI 难度</h3>
+        <div class="diff-grid" id="diff-grid"></div>
+        <h3 style="margin-top:16px">我的执子</h3>
+        <div class="color-row">
+          <button class="color-btn active" id="color-w" onclick="setPlayerColor('w')"><span class="g">♔</span>执白先行</button>
+          <button class="color-btn" id="color-b" onclick="setPlayerColor('b')"><span class="g">♚</span>执黑后行</button>
+        </div>
+        <button class="btn primary" style="width:100%;margin-top:14px" onclick="newGame()">开始新对局</button>
+        <div class="side-note">难度可随时切换，立即对下一手生效；更换执子颜色需开始新对局。AI 为内置本地搜索引擎，无需联网对弈。</div>
+      </div>
+      <div class="card">
+        <h3>对局操作</h3>
+        <div class="action-grid">
+          <button class="btn" id="btn-undo" onclick="undoMove()">↩️ 悔棋</button>
+          <button class="btn" id="btn-hint" onclick="showHint()">💡 提示</button>
+          <button class="btn" onclick="flipBoard()">🔄 翻转棋盘</button>
+          <button class="btn" id="btn-sound" onclick="toggleSound()">🔊 音效开</button>
+        </div>
+      </div>
+      <div class="card hist-card">
+        <h3>走子记录</h3>
+        <div class="hist" id="hist"><div class="empty">尚未开始走子</div></div>
+      </div>
+      <div class="card">
+        <h3>AI 助手</h3>
+        <button class="btn primary" style="width:100%" onclick="askAssistantAboutGame()">🤖 让助手分析本局</button>
+        <div class="side-note">把本局棋谱交给 AI 助手：先用本地引擎评估每步得失，再由大模型讲解。也可以去「AI 助手」页直接提问。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 视图：AI 助手 ===== -->
+<section class="view" id="view-assistant">
+  <div class="chat-layout">
+    <div class="chat-card">
+      <div class="chat-head">
+        <h3>🤖 国际象棋 AI 助手</h3>
+        <div class="tools">
+          <button class="btn" onclick="askAssistantAboutGame()">♟ 导入本局棋谱</button>
+          <button class="btn" onclick="clearChat()">🗑 清空对话</button>
+          <button class="btn" onclick="toggleAssistantSettings()">⚙️ 设置</button>
+        </div>
+      </div>
+      <div id="chat-list"></div>
+      <div class="chat-input-row">
+        <textarea id="chat-input" rows="2" placeholder="问任何国际象棋问题：规则、开局、战术、残局……也可以直接粘贴 PGN 棋谱让我分析（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button class="btn primary" id="chat-send" onclick="sendChat()">发送 ➤</button>
+      </div>
+      <div class="chat-status" id="chat-status"></div>
+    </div>
+    <div class="card" id="assistant-settings" style="display:none">
+      <h3>API 设置</h3>
+      <label style="font-size:12px;color:var(--txt2)">模型</label>
+      <select class="api-field" id="api-model">
+        <option value="doubao-seed-2-1-lite-260915">doubao-seed-2-1-lite-260915（默认）</option>
+        <option value="doubao-seed-2-0-lite-260428">doubao-seed-2-0-lite-260428</option>
+        <option value="doubao-seed-2-0-mini-260428">doubao-seed-2-0-mini-260428</option>
+        <option value="doubao-seed-2-1-turbo-260628">doubao-seed-2-1-turbo-260628</option>
+      </select>
+      <label style="font-size:12px;color:var(--txt2)">API Key（可选：留空则使用内置密钥）</label>
+      <input class="api-field" id="api-key" type="password" placeholder="已内置可用密钥，无需填写；填自己的可覆盖">
+      <div class="action-grid" style="margin-top:10px">
+        <button class="btn primary" onclick="saveApiSettings()">保存</button>
+        <button class="btn" onclick="testApiConnection()">测试连接</button>
+      </div>
+      <div class="side-note">本页面已内置站长提供的密钥，打开即用。若填写自己的密钥，仅保存在本机浏览器，不会写入文件。所选模型需在方舟控制台开通。</div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- 升变选择弹窗 -->
+<div class="modal" id="promo-modal">
+  <div class="modal-card">
+    <h3>兵升变 — 选择要升变的棋子</h3>
+    <div class="promo-row" id="promo-row"></div>
+  </div>
+</div>
+
+<footer>国际象棋 AI 助手 · 规则引擎 chess.js（MIT）· AI 为本地极大极小搜索引擎，"大师"档约为熟练业余水平，非职业棋手强度</footer>
+
+<script>
+"use strict";
+/* ============================================================
+   基础工具
+============================================================ */
+const $ = id => document.getElementById(id);
+const GLYPH = {p:"♟",n:"♞",b:"♝",r:"♜",q:"♛",k:"♚"};
+const CN_NAME = {p:"兵",n:"马",b:"象",r:"车",q:"后",k:"王"};
+const FILES = "abcdefgh";
+function sqName(r,c){ return FILES[c] + (8-r); } // r: 0=第8横线
+function now(){ return performance.now(); }
+
+/* ---------- 音效 ---------- */
+let soundOn = true, audioCtx = null;
+function beep(freq, dur, type, gain){
+  if(!soundOn) return;
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = type||"sine"; o.frequency.value = freq;
+    g.gain.setValueAtTime(gain||0.08, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + dur);
+  }catch(e){}
+}
+const sndMove = ()=>beep(420,.09,"sine",.07);
+const sndCap  = ()=>{beep(240,.1,"triangle",.1);beep(180,.14,"sine",.06);};
+const sndCheck= ()=>beep(660,.18,"sine",.09);
+const sndEnd  = ()=>{beep(523,.25,"sine",.08);setTimeout(()=>beep(659,.3,"sine",.08),140);setTimeout(()=>beep(784,.4,"sine",.08),290);};
+function toggleSound(){
+  soundOn = !soundOn;
+  $("btn-sound").textContent = soundOn ? "🔊 音效开" : "🔇 音效关";
+}
+
+/* ============================================================
+   通用棋盘渲染
+============================================================ */
+function renderBoard(el, chess, st){
+  // st: {orientation, selected, targets(verbose moves), lastMove, markers:[sq], hint:[sq,sq], onSquare, showCoords}
+  el.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  const board = chess.board();
+  const flip = st.orientation === "b";
+  let checkSq = null;
+  if(chess.in_check()){
+    const turn = chess.turn();
+    outer: for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+      const p = board[r][c];
+      if(p && p.type==="k" && p.color===turn){ checkSq = sqName(r,c); break outer; }
+    }
+  }
+  const targetMap = {};
+  (st.targets||[]).forEach(m=>{ targetMap[m.to] = m; });
+  for(let dr=0;dr<8;dr++){
+    for(let dc=0;dc<8;dc++){
+      const r = flip ? 7-dr : dr;
+      const c = flip ? 7-dc : dc;
+      const name = sqName(r,c);
+      const sq = document.createElement("div");
+      sq.className = "sq " + (((r+c)%2===0)?"light":"dark");
+      sq.dataset.sq = name;
+      if(st.onSquare) sq.classList.add("clickable");
+      if(st.lastMove && (name===st.lastMove.from || name===st.lastMove.to)) sq.classList.add("lastmove");
+      if(st.selected === name) sq.classList.add("selected");
+      if(checkSq === name) sq.classList.add("check");
+      if(st.hint && st.hint.includes(name)) sq.classList.add("hintflash");
+      if(st.showCoords !== false){
+        if(dc===0){ const s=document.createElement("span"); s.className="coord rank"; s.textContent=8-r; sq.appendChild(s); }
+        if(dr===7){ const s=document.createElement("span"); s.className="coord file"; s.textContent=FILES[c]; sq.appendChild(s); }
+      }
+      const p = board[r][c];
+      if(p){
+        const sp = document.createElement("span");
+        sp.className = "piece " + p.color;
+        sp.textContent = GLYPH[p.type];
+        sq.appendChild(sp);
+      }
+      if(targetMap[name]){
+        const mk = document.createElement("div");
+        mk.className = (p || targetMap[name].flags.includes("e")) ? "ring" : "dot";
+        sq.appendChild(mk);
+      }
+      if(st.markers && st.markers.includes(name)){
+        const mx = document.createElement("div"); mx.className="marker-x"; mx.textContent="✕"; sq.appendChild(mx);
+      }
+      if(st.onSquare) sq.addEventListener("click", ()=>st.onSquare(name));
+      frag.appendChild(sq);
+    }
+  }
+  el.appendChild(frag);
+}
+
+/* ============================================================
+   AI 引擎：极大极小 + Alpha-Beta + 静态搜索
+============================================================ */
+const VAL = {p:100,n:320,b:330,r:500,q:900,k:0};
+// 位置价值表（白方视角，第一行 = 第8横线）
+const PST = {
+p:[ 0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10, 5,5,10,25,25,10,5,5, 0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5, 5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],
+n:[-50,-40,-30,-30,-30,-30,-40,-50, -40,-20,0,0,0,0,-20,-40, -30,0,10,15,15,10,0,-30, -30,5,15,20,20,15,5,-30, -30,0,15,20,20,15,0,-30, -30,5,10,15,15,10,5,-30, -40,-20,0,5,5,0,-20,-40, -50,-40,-30,-30,-30,-30,-40,-50],
+b:[-20,-10,-10,-10,-10,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,10,10,5,0,-10, -10,5,5,10,10,5,5,-10, -10,0,10,10,10,10,0,-10, -10,10,10,10,10,10,10,-10, -10,5,0,0,0,0,5,-10, -20,-10,-10,-10,-10,-10,-10,-20],
+r:[ 0,0,0,0,0,0,0,0, 5,10,10,10,10,10,10,5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, 0,0,0,5,5,0,0,0],
+q:[-20,-10,-10,-5,-5,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,5,5,5,0,-10, -5,0,5,5,5,5,0,-5, 0,0,5,5,5,5,0,-5, -10,5,5,5,5,5,0,-10, -10,0,5,0,0,0,0,-10, -20,-10,-10,-5,-5,-10,-10,-20],
+k:[-30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -20,-30,-30,-40,-40,-30,-30,-20, -10,-20,-20,-20,-20,-20,-20,-10, 20,20,0,0,0,0,20,20, 20,30,10,0,0,10,30,20],
+kEnd:[-50,-40,-30,-20,-20,-30,-40,-50, -30,-20,-10,0,0,-10,-20,-30, -30,-10,20,30,30,20,-10,-30, -30,-10,30,40,40,30,-10,-30, -30,-10,30,40,40,30,-10,-30, -30,-10,20,30,30,20,-10,-30, -30,-30,0,0,0,0,-30,-30, -50,-30,-30,-30,-30,-30,-30,-50]
+};
+
+function evaluate(chess){
+  const b = chess.board();
+  let score = 0, phase = 0, wk=null, bk=null;
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const p=b[r][c]; if(!p) continue;
+    if(p.type==="k"){ if(p.color==="w") wk=[r,c]; else bk=[r,c]; continue; }
+    const idx = p.color==="w" ? r*8+c : (7-r)*8+c;
+    const v = VAL[p.type] + PST[p.type][idx];
+    score += p.color==="w" ? v : -v;
+    if(p.type!=="p") phase += VAL[p.type];
+  }
+  const kt = phase <= 1500 ? PST.kEnd : PST.k;
+  if(wk) score += kt[wk[0]*8+wk[1]];
+  if(bk) score -= kt[(7-bk[0])*8+bk[1]];
+  return chess.turn()==="w" ? score : -score;
+}
+
+function sqIdx(sq, color){
+  const f = sq.charCodeAt(0)-97, r = 8-parseInt(sq[1]);
+  return color==="w" ? r*8+f : (7-r)*8+f;
+}
+function orderMoves(moves){
+  for(const m of moves){
+    let s = 0;
+    if(m.captured) s = 10*VAL[m.captured] - VAL[m.piece];
+    if(m.promotion) s += 800;
+    if(!m.captured && PST[m.piece]){
+      s += PST[m.piece][sqIdx(m.to,m.color)] - PST[m.piece][sqIdx(m.from,m.color)];
+    }
+    m._o = s;
+  }
+  moves.sort((a,b)=>b._o-a._o);
+  return moves;
+}
+
+const TIME_UP = "TIME_UP";
+function checkTime(ctx){
+  ctx.nodes++;
+  if((ctx.nodes & 511)===0 && now() > ctx.deadline) throw TIME_UP;
+}
+
+function quiesce(chess, alpha, beta, ctx, qd){
+  checkTime(ctx);
+  const stand = evaluate(chess);
+  if(stand >= beta) return beta;
+  if(stand > alpha) alpha = stand;
+  if(qd<=0) return alpha;
+  const caps = chess.moves({verbose:true}).filter(m=>m.captured || m.promotion);
+  orderMoves(caps);
+  for(const m of caps){
+    chess.move(m);
+    let s;
+    try{ s = -quiesce(chess, -beta, -alpha, ctx, qd-1); } finally { chess.undo(); }
+    if(s >= beta) return beta;
+    if(s > alpha) alpha = s;
+  }
+  return alpha;
+}
+
+function negamax(chess, depth, alpha, beta, ply, ctx){
+  checkTime(ctx);
+  const moves = chess.moves({verbose:true});
+  if(moves.length===0) return chess.in_check() ? -100000+ply : 0;
+  if(chess.insufficient_material()) return 0;
+  if(depth<=0) return quiesce(chess, alpha, beta, ctx, ctx.qdepth);
+  orderMoves(moves);
+  let best = -Infinity;
+  for(const m of moves){
+    chess.move(m);
+    let s;
+    try{ s = -negamax(chess, depth-1, -beta, -alpha, ply+1, ctx); } finally { chess.undo(); }
+    if(s>best) best=s;
+    if(best>alpha) alpha=best;
+    if(alpha>=beta) break;
+  }
+  return best;
+}
+
+function pickMove(chess, cfg){
+  const moves = chess.moves({verbose:true});
+  if(moves.length===0) return null;
+  if(moves.length===1) return moves[0];
+  if(cfg.randomChance && Math.random() < cfg.randomChance)
+    return moves[Math.floor(Math.random()*moves.length)];
+  orderMoves(moves);
+  let best = moves[0];
+  const ctx = {nodes:0, deadline: now()+cfg.time, qdepth: cfg.qdepth};
+  for(let d=1; d<=cfg.depth; d++){
+    try{
+      let localBest = null, localScore = -Infinity;
+      for(const m of moves){
+        chess.move(m);
+        let s;
+        // 根节点全窗口搜索：保证每步得到精确分，避免边界值并列导致误选
+        try{ s = -negamax(chess, d-1, -Infinity, Infinity, 1, ctx); } finally { chess.undo(); }
+        if(cfg.jitter) s += (Math.random()*2-1)*cfg.jitter;
+        if(s > localScore){ localScore = s; localBest = m; }
+      }
+      best = localBest;
+      moves.splice(moves.indexOf(best),1);
+      moves.unshift(best);
+    }catch(e){
+      if(e===TIME_UP) break;
+      throw e;
+    }
+  }
+  return best;
+}
+
+const LEVELS = {
+  beginner: {name:"入门", emoji:"🌱", desc:"轻松随意\n常犯错误", depth:1, qdepth:0, time:300,  jitter:120, randomChance:.35},
+  junior:   {name:"初级", emoji:"⚔️", desc:"会吃子躲子\n偶有失误", depth:2, qdepth:1, time:600,  jitter:35,  randomChance:.08},
+  advanced: {name:"高手", emoji:"🔥", desc:"深算三步\n抓住战术", depth:3, qdepth:2, time:1500, jitter:8,   randomChance:0},
+  master:   {name:"大师", emoji:"👑", desc:"深算四步\n全力应战", depth:4, qdepth:3, time:3000, jitter:0,   randomChance:0}
+};
+
+/* ============================================================
+   升变弹窗（对弈与教程共用）
+============================================================ */
+function openPromotion(color, cb){
+  const row = $("promo-row");
+  row.innerHTML = "";
+  ["q","r","n","b"].forEach(t=>{
+    const b = document.createElement("button");
+    b.className = "promo-btn";
+    b.title = CN_NAME[t];
+    b.innerHTML = `<span class="${color}">${GLYPH[t]}</span>`;
+    b.onclick = ()=>{ $("promo-modal").classList.remove("show"); cb(t); };
+    row.appendChild(b);
+  });
+  $("promo-modal").classList.add("show");
+}
+
+/* ============================================================
+   视图路由
+============================================================ */
+function route(){
+  let h = location.hash.slice(1);
+  if(h==="review") h="assistant"; /* 兼容旧链接 */
+  if(!["tutorial","play","assistant"].includes(h)) h="tutorial";
+  $("view-tutorial").classList.toggle("active", h==="tutorial");
+  $("view-play").classList.toggle("active", h==="play");
+  $("view-assistant").classList.toggle("active", h==="assistant");
+  $("tab-tutorial").classList.toggle("active", h==="tutorial");
+  $("tab-play").classList.toggle("active", h==="play");
+  $("tab-assistant").classList.toggle("active", h==="assistant");
+  if(h==="assistant") renderChat();
+  window.scrollTo({top:0});
+}
+window.addEventListener("hashchange", route);
+
+/* ============================================================
+   新手教程
+============================================================ */
+const LESSONS = [
+{
+  title:"认识棋盘与初始摆放",
+  sub:"LESSON 1 · 棋盘、坐标与棋子",
+  html:`
+  <div class="lesson-cols">
+    <div>
+      <p>国际象棋在 <b>8×8 共 64 格</b>的棋盘上进行，深浅格相间。摆放棋盘时记住一句口诀：<b>"白格在右下"</b>——每位棋手右手边的底角必须是浅色格。</p>
+      <p>棋盘的列叫<b>直线（file）</b>，从白方左手起标记为 a～h；行叫<b>横线（rank）</b>，从白方一侧起标记为 1～8。每个格子都有唯一坐标，如 e4、g8，这是看懂棋谱的基础。</p>
+      <p>双方各有 16 枚棋子：<b>1 王、1 后、2 车、2 象、2 马、8 兵</b>。初始摆放要点：</p>
+      <ul>
+        <li>兵整齐排在第 2 横线（黑兵在第 7 横线）；</li>
+        <li>底线从外到内依次是：车、马、象；</li>
+        <li><b>"后占本色"</b>——白后放白格 d1，黑后放黑格 d8；剩下的 e 格放王。</li>
+      </ul>
+      <div class="tipbox">💡 <b>白方先行</b>，之后双方轮流走子，每次必须走一步，不能跳过。目标不是吃光对方，而是<b>将死对方的王</b>。</div>
+    </div>
+    <div class="demo-side">
+      <div class="board-wrap"><div class="board" id="demo-board-1"></div></div>
+      <div class="demo-goal">▲ 标准初始局面。对照左侧口诀，认一认每枚棋子的位置。</div>
+    </div>
+  </div>`,
+  demo:{type:"static", fen:"start"}
+},
+{
+  title:"六种棋子的走法",
+  sub:"LESSON 2 · 点击切换棋子，观察它的控制范围",
+  html:`
+  <div class="lesson-cols">
+    <div>
+      <p>每种棋子走法不同。右侧棋盘中<b>绿色圆点</b>表示该棋子当前可以走到的格子（以 d4 附近的棋子为例）：</p>
+      <ul>
+        <li><b>兵 ♙</b>：只能<b>向前直走</b>，每次一格；在初始位置时可以选择走两格。但吃子时是<b>斜前方一格</b>——直走斜吃，是兵最特别的地方。兵永远不能后退。</li>
+        <li><b>马 ♘</b>：走"日"字（L 形：先直两格再拐一格）。马是唯一<b>可以越过其他棋子</b>的棋子，不存在"蹩马腿"。</li>
+        <li><b>象 ♗</b>：沿斜线走任意格数，不能越子。一只象终生只能待在同一种颜色的格子里。</li>
+        <li><b>车 ♖</b>：沿横线或直线走任意格数，不能越子。</li>
+        <li><b>后 ♕</b>：车 + 象的合体，横、直、斜任意格数，威力最大。</li>
+        <li><b>王 ♔</b>：任意方向走一格。王是无价之宝——它被将死，棋就输了。</li>
+      </ul>
+      <div class="tipbox">💡 除马以外，所有棋子都不能越过路上的棋子；走到敌方棋子所在格即完成<b>吃子</b>，把对方棋子拿出棋盘，自己占据该格。</div>
+      <div class="tipbox warn">⚠️ 常见新手误区：兵不是直着吃子的；马没有"蹩腿"限制（那是中国象棋的规则）。</div>
+    </div>
+    <div class="demo-side">
+      <div class="piece-tabs" id="piece-tabs"></div>
+      <div class="board-wrap"><div class="board" id="demo-board-2"></div></div>
+      <div class="demo-goal" id="piece-desc"></div>
+    </div>
+  </div>`,
+  demo:{type:"pieces"}
+},
+{
+  title:"棋谱记谱法（读懂 SAN）",
+  sub:"LESSON 3 · 看懂棋书上的每一步",
+  html:`
+  <div class="lesson-cols">
+    <div>
+      <p>国际象棋通用的记录方式叫<b>代数记谱法（SAN）</b>，棋书、对局记录和复盘软件都用它。学会它，你才能看懂自己和高手的棋谱。</p>
+      <p><b>棋子字母：</b></p>
+      <ul>
+        <li><b>K</b> 王（King） · <b>Q</b> 后（Queen） · <b>R</b> 车（Rook） · <b>B</b> 象（Bishop） · <b>N</b> 马（Knight）；</li>
+        <li>马用 <b>N</b> 而不是 K，是因为 K 已经留给了王；<b>兵不写字母</b>，直接写到达格。</li>
+      </ul>
+      <p><b>一条着法的写法：</b>棋子字母 + 到达格坐标。例如 <code>Nf3</code> = 马走到 f3；<code>e4</code> = 兵走到 e4。</p>
+      <ul>
+        <li><b>吃子</b>用 <code>x</code>：<code>Bxe5</code> = 象吃掉 e5 上的棋子；兵吃子要写出发线，如 <code>exd5</code> = e 线兵吃掉 d5 的子。</li>
+        <li><b>将军</b>末尾加 <code>+</code>，<b>将杀</b>加 <code>#</code>，如 <code>Ra8#</code>。</li>
+        <li><b>易位</b>记为 <code>O-O</code>（短易位）或 <code>O-O-O</code>（长易位）。</li>
+        <li><b>升变</b>用 <code>=</code> 注明新棋子，如 <code>e8=Q</code>；吃过路兵可在末尾标注 <code>e.p.</code></li>
+      </ul>
+      <div class="tipbox">💡 一局棋按回合编号：<code>1. e4 e5</code> 表示第 1 回合白方走 e4、黑方走 e5；<code>2. Nf3 Nc6</code> 是第 2 回合，白先黑后依次排列。</div>
+      <div class="tipbox warn">⚠️ 进阶补充：如果两枚同类棋子都能走到同一格，记谱会补出发线或横线消除歧义，例如 <code>Nbd2</code> 表示 b 线的马走到 d2。入门阶段先掌握基本写法即可。</div>
+    </div>
+    <div class="demo-side">
+      <div class="board-wrap"><div class="board" id="demo-board-3"></div></div>
+      <div class="demo-goal">▲ 标准初始局面。对照左侧字母表，试着读出开局常见着法：e4、Nf3、Bc4。</div>
+    </div>
+  </div>`,
+  demo:{type:"static", fen:"start"}
+},
+{
+  title:"兵的升变",
+  sub:"LESSON 4 · 动手试试：把白兵推到底线",
+  html:`
+  <div class="lesson-cols">
+    <div>
+      <p>兵虽然弱小，却藏着最大的梦想：<b>任何兵走到对方底线（白兵到第 8 横线，黑兵到第 1 横线）时，必须立即升变</b>为后、车、象、马中的任意一种，颜色不变。</p>
+      <ul>
+        <li>不能升变为王，也不能保持为兵；</li>
+        <li>升变不受"该棋子是否被吃过"限制——你完全可以拥有两个甚至更多的后；</li>
+        <li>绝大多数情况升变为<b>后</b>（最强）；偶尔升变为马可以打出将军抽子，或升变小棋子避免逼和，这叫<b>低升变</b>。</li>
+      </ul>
+      <div class="tipbox">💡 正因为有升变，残局里多一个兵往往就是胜负手。<b>保护通路兵（前方没有敌兵阻挡的兵）冲向底线</b>，是残局的核心思路。</div>
+      <p><b>动手试试：</b>点击右侧白兵 a7，再点击 a8，把它推到底线，体验升变选择。</p>
+    </div>
+    <div class="demo-side">
+      <div class="board-wrap"><div class="board" id="demo-board-4"></div></div>
+      <div class="demo-toolbar"><button class="btn" onclick="resetDemo()">↺ 重置局面</button></div>
+      <div class="demo-success" id="demo-success-4">🎉 升变成功！小兵变强子，这就是兵的价值所在。</div>
+      <div class="demo-goal">练习目标：白兵 a7 → a8，选择升变棋子。</div>
+    </div>
+  </div>`,
+  demo:{type:"play", fen:"8/P6k/8/8/8/8/8/K7 w - - 0 1", goal:"promotion", successId:"demo-success-4"}
+},
+{
+  title:"吃过路兵",
+  sub:"LESSON 5 · 动手试试：抓住稍纵即逝的机会",
+  html:`
+  <div class="lesson-cols">
+    <div>
+      <p><b>吃过路兵（en passant）</b>是国际象棋最容易被新手忽略的规则：</p>
+      <ul>
+        <li>对方的兵从初始位置<b>一次走两格</b>，恰好落在你的兵的<b>横向相邻格</b>；</li>
+        <li>你的兵可以立即斜进一格，走到它"路过"的那个格子，把这只兵吃掉——就好像它只走了一格一样；</li>
+        <li><b>机会只有一步！</b>如果这一步不吃，之后就再也不能这样吃了。</li>
+      </ul>
+      <p>右侧局面中，黑兵刚走了 d7→d5（试图躲开白兵的攻击范围），白兵在 e5。按照吃过路兵规则，白兵可以走到 <b>d6</b>，同时把 d5 的黑兵移出棋盘。</p>
+      <div class="tipbox">💡 这条规则的初衷：兵首步走两格是后来加的"提速"规则，为了不让它借此逃避对方兵的攻击，才配套了吃过路兵。</div>
+      <p><b>动手试试：</b>点击白兵 e5，再点击 d6。</p>
+    </div>
+    <div class="demo-side">
+      <div class="board-wrap"><div class="board" id="demo-board-5"></div></div>
+      <div class="demo-toolbar"><button class="btn" onclick="resetDemo()">↺ 重置局面</button></div>
+      <div class="demo-success" id="demo-success-5">🎉 吃过路兵成功！白兵落在 d6，d5 的黑兵被移除。</div>
+      <div class="demo-goal">练习目标：白兵 e5 → d6（黑兵 d5 视为刚走两格）。</div>
+    </div>
+  </div>`,
+  demo:{type:"play", fen:"k7/8/8/3pP3/8/8/8/K7 w - d6 0 2", goal:"enpassant", successId:"demo-success-5"}
+},
+{
+  title:"王车易位",
+  sub:"LESSON 6 · 动手试试：一步棋同时动两个子",
+  html:`
+  <div class="lesson-cols">
+    <div>
+      <p><b>王车易位（castling）</b>是唯一一步可以同时移动两枚棋子的走法：王向车的方向横移<b>两格</b>，然后那只车跳到王另一侧紧邻的格子。</p>
+      <ul>
+        <li><b>短易位（O-O）</b>：王 e1→g1，车 h1→f1；</li>
+        <li><b>长易位（O-O-O）</b>：王 e1→c1，车 a1→d1。</li>
+      </ul>
+      <p>必须<b>同时满足全部条件</b>才能易位：</p>
+      <ol>
+        <li>王和参与易位的车都<b>从未走动过</b>（哪怕走回原位也不行）；</li>
+        <li>王与车之间<b>没有任何棋子</b>；</li>
+        <li>王<b>当前不被将军</b>；</li>
+        <li>王经过的格子和到达的格子<b>都不在对方攻击之下</b>（车被攻击、车路过的格子被攻击则不影响）。</li>
+      </ol>
+      <div class="tipbox">💡 易位一举两得：把王送进安全的角落，同时把车调往中央。<b>尽早易位</b>是最重要的开局原则之一。</div>
+      <p><b>动手试试：</b>点击白王 e1，再点击 g1（短易位）或 c1（长易位），观察车的联动。</p>
+    </div>
+    <div class="demo-side">
+      <div class="board-wrap"><div class="board" id="demo-board-6"></div></div>
+      <div class="demo-toolbar"><button class="btn" onclick="resetDemo()">↺ 重置局面</button></div>
+      <div class="demo-success" id="demo-success-6">🎉 易位成功！王进角落、车占中央，一步完成两件事。</div>
+      <div class="demo-goal">练习目标：完成一次短易位或长易位（本局面可自由探索双方走法）。</div>
+    </div>
+  </div>`,
+  demo:{type:"play", fen:"r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1", goal:"castle", successId:"demo-success-6"}
+},
+{
+  title:"将军、将杀与应将",
+  sub:"LESSON 7 · 动手试试：一步将杀",
+  html:`
+  <div class="lesson-cols">
+    <div>
+      <p><b>将军（check）</b>：一步棋之后，你的棋子攻击着对方的王，就是将军。被将军的一方<b>必须立即解除将军</b>，方法只有三种：</p>
+      <ol>
+        <li><b>躲</b>——王走到不被攻击的格子；</li>
+        <li><b>挡</b>——用棋子垫在攻击路线中间（对马和贴身攻击无效）；</li>
+        <li><b>吃</b>——吃掉正在将军的棋子。</li>
+      </ol>
+      <p>如果三种办法都做不到，就是<b>将杀（checkmate）</b>，棋局立即结束，被将杀的一方输棋。</p>
+      <ul>
+        <li>王<b>永远不会被真正吃掉</b>，也绝不能主动走进被攻击的格子；</li>
+        <li>双方的王不能相邻（互相攻击）。</li>
+      </ul>
+      <div class="tipbox">💡 右侧是经典的<b>底线杀</b>题型：黑王被自己的三个兵闷在底线。白车沉底一步即可将杀——找到它！</div>
+      <p><b>动手试试：</b>白方一步将杀黑王（提示：车到第 8 横线）。</p>
+    </div>
+    <div class="demo-side">
+      <div class="board-wrap"><div class="board" id="demo-board-7"></div></div>
+      <div class="demo-toolbar"><button class="btn" onclick="resetDemo()">↺ 重置局面</button></div>
+      <div class="demo-success" id="demo-success-7">🎉 将杀！Ra8# —— 黑王被自己的兵挡住去路，这就是"底线弱点"。</div>
+      <div class="demo-goal">练习目标：白方一步将杀。走错了可以点"重置局面"重来。</div>
+    </div>
+  </div>`,
+  demo:{type:"play", fen:"6k1/5ppp/8/8/8/8/8/R3K3 w - - 0 1", goal:"checkmate", successId:"demo-success-7"}
+},
+{
+  title:"和棋的五种情形",
+  sub:"LESSON 8 · 赢不了，也别输",
+  html:`
+  <div class="lesson-cols">
+    <div>
+      <p>不是每盘棋都分胜负。以下情形均判<b>和棋（draw）</b>：</p>
+      <ol>
+        <li><b>逼和（stalemate）</b>：轮到走子的一方<b>没有被将军</b>，却<b>没有任何合法着法</b>。右侧就是实例——黑王没被将军，但 g8、g7、h7 全在白方火力之下，无路可走，判和。</li>
+        <li><b>子力不足</b>：双方剩余棋子都无法将杀，如单王对单王、单王对王加一象/一马。</li>
+        <li><b>三次重复</b>：同一局面（含走子权与易位权利）出现三次，可由一方提出和棋。</li>
+        <li><b>50 回合规则</b>：连续 50 回合没有吃子也没有动兵，可提和。</li>
+        <li><b>双方协议和棋</b>。</li>
+      </ol>
+      <div class="tipbox warn">⚠️ 新手最容易"赢棋变和棋"的坑就是<b>逼和</b>：大优残局中把对方王逼到角落时，每步之前先确认对方还有子可动，或者干脆保持将军。</div>
+      <div class="tipbox">💡 落后时，逼和是救命稻草——弃光能动的子，让自己的王"无子可动且不被将军"，就能从败局中抢回半分。</div>
+    </div>
+    <div class="demo-side">
+      <div class="board-wrap"><div class="board" id="demo-board-8"></div></div>
+      <div class="demo-goal">▲ 轮到黑方走：黑王 h8 未被将军，但所有去处（红 ✕）都被白后与白王控制 —— 逼和，判和棋。</div>
+    </div>
+  </div>`,
+  demo:{type:"static", fen:"7k/5Q2/6K1/8/8/8/8/8 b - - 0 1", markers:["g8","g7","h7"]}
+},
+{
+  title:"子力价值与兑子判断",
+  sub:"LESSON 9 · 换子之前先算划不划算",
+  html:`
+  <div class="lesson-cols">
+    <div>
+      <p>每枚棋子都有大致的<b>子力价值</b>，以兵为单位，用来快速判断兑子是否吃亏：</p>
+      <ul>
+        <li><b>兵 = 1</b> · <b>马 = 3</b> · <b>象 = 3</b> · <b>车 = 5</b> · <b>后 = 9</b>；王无价，不参与兑换计算。</li>
+        <li>马与象同值（3 分）：象在开阔斜线多时更有力，马在封闭局面和有坚固据点时更灵活；<b>双象配合</b>通常略优于双马或马象搭配。</li>
+      </ul>
+      <p><b>兑子判断的几条原则：</b></p>
+      <ol>
+        <li>用小棋子换大棋子是赚的，例如马换车（3 换 5）；反过来用车换后（5 换 9）就是大亏。</li>
+        <li>同价值兑换（如象换马）基本等价，这时再看谁的棋子位置更好、更活跃。</li>
+        <li>不要送吃<b>没有保护</b>的棋子；兑子前先确认目标格有没有被对方看守。</li>
+        <li>多一个兵的优势在开局不明显，进入残局后往往决定胜负，所以不要随意弃兵换一时的主动。</li>
+      </ol>
+      <div class="tipbox">💡 价值只是参考标尺，不是铁律：一个位置极差、被锁死的后，可能不如一个活跃的马；实战中位置、王的安全和战术威胁比单纯数分更重要。</div>
+    </div>
+    <div class="demo-side">
+      <div class="board-wrap"><div class="board" id="demo-board-9"></div></div>
+      <div class="demo-goal">▲ 对照价值表数一数：双方各有哪些棋子？子力大致是否均衡？</div>
+    </div>
+  </div>`,
+  demo:{type:"static", fen:"r3k2r/ppq2ppp/2n5/3p4/3P4/2N5/PPQ2PPP/R3K2R w KQkq - 0 1"}
+},
+{
+  title:"四种基本战术",
+  sub:"LESSON 10 · 一子多动、以少换多的常用手段",
+  html:`
+  <div class="lesson-cols">
+    <div>
+      <p>战术是通过一步或几步强制手段赢得子力或将杀的方法。入门先掌握最常见的四种：</p>
+      <ul>
+        <li><b>捉双（Fork，双重攻击）</b>：一枚棋子同时攻击对方两个目标，对方通常只能救一个。<b>马</b>最擅长捉双；如果其中一个目标是王（必须应将），另一个子就白白丢掉。右侧局面中，白马跳到 d6 同时将军黑王 e8、攻击黑车 c8。</li>
+        <li><b>牵制（Pin）</b>：对方一枚弱子挡在更有价值的棋子前面，不敢挪动。后面是王的叫<b>绝对牵制</b>（挪动即违规）；后面是后或车的叫<b>相对牵制</b>（挪动会丢大子）。只有后、车、象这类长兵器能形成牵制。</li>
+        <li><b>串击（Skewer）</b>：与牵制正好相反——价值高的棋子在前先被攻击，它躲开后，藏在后面的弱子就暴露出来被吃。</li>
+        <li><b>闪击 / 闪将（Discovered Attack）</b>：挪开己方一枚棋子，露出身后后、车或象的攻击线。如果挪开的棋子自己也同时将军，就是<b>双将（Double Check）</b>：对方王必须移动，既无法垫子挡住两路攻击，也不可能同时吃掉两个攻击子。</li>
+      </ul>
+      <div class="tipbox">💡 每走一步之前，先反过来检查：自己有没有棋子被捉双、被牵制？再看能不能用上述手段给对方制造麻烦。</div>
+    </div>
+    <div class="demo-side">
+      <div class="board-wrap"><div class="board" id="demo-board-10"></div></div>
+      <div class="demo-goal">▲ 白马 d6（蓝点）同时攻击黑王 e8 与黑车 c8：典型的马捉双，黑方只能救王，车必丢。</div>
+    </div>
+  </div>`,
+  demo:{type:"static", fen:"2r1k3/8/3N4/8/8/8/8/4K3 w - - 0 1", markers:["d6","c8","e8"]}
+},
+{
+  title:"基础残局：后杀单王与车杀单王",
+  sub:"LESSON 11 · 优势到手，怎么把棋赢下来",
+  html:`
+  <div class="lesson-cols">
+    <div>
+      <p>进入残局、对方只剩单王时，<b>后 + 己方王</b>或<b>车 + 己方王</b>都是必胜局面。掌握下面两套基本方法，才能把优势转化为胜利。</p>
+      <p><b>单后杀王：</b></p>
+      <ol>
+        <li>后与对方王保持一个"<b>马步</b>"的距离，逐步收紧包围圈（像一个不断缩小的盒子），把对方王逼到边线或角落；</li>
+        <li>己方王慢慢靠近，配合后封锁逃跑格；</li>
+        <li>最后由后将军成杀。注意不要过早贴身将军，以免把对方王逼成无子可动的<b>逼和</b>。</li>
+      </ol>
+      <p><b>单车杀王：</b></p>
+      <ol>
+        <li>车用一条横线或竖线把对方王关进方框，逐步压缩空间；</li>
+        <li>己方王靠近对方王，形成"<b>对王</b>"（两王在同一直线或横线上，中间隔一格）；</li>
+        <li>对方王被逼到边线后，己方王封住它的逃跑格，车沉底将军成杀。</li>
+      </ol>
+      <div class="tipbox warn">⚠️ 单象或单马<b>无法</b>将杀单王；双象、马象配合可以胜单王，但属于进阶内容。残局领先时每步都要先确认对方仍有棋可走，避免赢棋下成逼和。</div>
+    </div>
+    <div class="demo-side">
+      <div class="board-wrap"><div class="board" id="demo-board-11"></div></div>
+      <div class="demo-goal">▲ 典型车杀单王成杀形：车 a8 沿底线将军，白王 e6 封住 d7/e7/f7，黑王 e8 无路可逃。</div>
+    </div>
+  </div>`,
+  demo:{type:"static", fen:"R3k3/8/4K3/8/8/8/8/8 b - - 0 1", markers:["d7","e7","f7","d8","f8"]}
+},
+{
+  title:"开局三原则与新手建议",
+  sub:"LESSON 12 · 把规则变成棋力",
+  html:`
+  <p>知道怎么走，只是第一步。遵循<b>开局三原则</b>，你的前 10 步就不会吃大亏：</p>
+  <ol>
+    <li><b>抢占中心</b>：首步优先走 e 兵或 d 兵到 e4/d4。中心格（d4、e4、d5、e5）是全盘制高点，占中心的棋子控制范围最大。</li>
+    <li><b>快速出子</b>：尽快把马、象调出来（通常马先于象），每个子尽量只动一次就到达好位置。不要反复挪动同一枚棋子，也不要过早把后拉出来——后会成为对方出子时的"免费靶子"。</li>
+    <li><b>尽早易位</b>：一般在前 10 步内完成短易位，让王远离中心战场。</li>
+  </ol>
+  <p>再送你五条实战习惯：</p>
+  <ul>
+    <li><b>每步先问"对方想干什么"</b>：对手上一步的威胁是什么？我的子有没有白送的？</li>
+    <li><b>走子前做安全检查</b>：目标格子有没有被对方看守？走开后有没有暴露自己的王或大子？</li>
+    <li>记住子力价值感：<b>兵 1、马 3、象 3、车 5、后 9</b>。用它快速判断兑子划不划算。</li>
+    <li>留意基本战术：<b>捉双</b>、<b>牵制</b>、<b>串击</b>、<b>闪击</b>（详见「四种基本战术」一课）。</li>
+    <li>输棋不可怕，<b>复盘</b>才涨棋：用 AI 对练的"悔棋"和"提示"功能弄清哪一步开始吃亏，或点「让助手分析本局」听 AI 讲解。</li>
+  </ul>
+  <div class="tipbox">🎯 学完本课，去"AI 对练"从<b>入门难度</b>开始实战吧！赢下入门后再逐级挑战初级、高手、大师。</div>`,
+  demo:null
+},
+{
+  title:"结业小测验",
+  sub:"LESSON 13 · 9 道题检验学习成果",
+  html:`<div id="quiz-box"></div><div class="quiz-score" id="quiz-score"></div>
+  <div style="margin-top:8px"><button class="btn" onclick="buildQuiz()">↺ 重新测验</button></div>`,
+  demo:{type:"quiz"}
+}
+];
+
+const QUIZ = [
+  {q:"1. 国际象棋中，哪一方先走棋？", opts:["黑方","白方","猜先决定","每局轮换先手"], a:1,
+   expl:"固定白方先行，之后双方轮流走子。"},
+  {q:"2. 马在走'日'字时，可以越过路上的其他棋子吗？", opts:["不可以，会被挡住","可以，马是唯一能越子的棋子","只有己方棋子能越过","只有吃子时能越过"], a:1,
+   expl:"国际象棋的马没有'蹩腿'限制，任何棋子都挡不住它。"},
+  {q:"3. 兵到达对方底线时，可以升变为下列哪组棋子？", opts:["后、车、象、马（任选其一）","只能升变为后","后或王","任意棋子包括王"], a:0,
+   expl:"必须升变为后、车、象、马之一，不能变王，也不能不升变。"},
+  {q:"4. 你的王被将军时，正确的做法是？", opts:["可以置之不理走别的子","必须立即解除将军（躲/挡/吃）","直接把王拿出棋盘","自动判负"], a:1,
+   expl:"被将军必须立即应将；三种应将手段都不可行时才是将杀。"},
+  {q:"5. 轮到黑方走，黑王未被将军但黑方没有任何合法着法，结果是？", opts:["黑方输","白方输","和棋（逼和）","重赛"], a:2,
+   expl:"无子可动且未被将军 = 逼和，判和棋。这是优势方最常踩的坑。"},
+  {q:"6. 记谱法 Nf3 中的字母 N 代表哪枚棋子？", opts:["后","车","马","象"], a:2,
+   expl:"N 代表马（Knight）；K 已留给王，所以马不用 K。兵不写棋子字母。"},
+  {q:"7. 按子力价值估算，一枚后大致相当于多少个兵？", opts:["3 个","5 个","9 个","13 个"], a:2,
+   expl:"参考价值：兵 1、马/象 3、车 5、后 9。后约等于 9 个兵，不能拿去换车。"},
+  {q:"8. 一枚棋子被牵制，而它身后是对方的王，这种牵制称为？", opts:["相对牵制","绝对牵制","串击","捉双"], a:1,
+   expl:"身后是王 = 绝对牵制，被牵制棋子挪动会造成违规将军；身后是后/车则为相对牵制。"},
+  {q:"9. 后对单王时，最终将杀还需要下列哪一项配合？", opts:["再一个后","己方王靠近封锁逃跑格","两枚兵","无需任何配合即可独自杀王"], a:1,
+   expl:"单后可以独自缩小包围圈，但成杀必须有己方王配合封住逃跑格；同时要注意避免逼和。"}
+];
+
+let curLesson = 0;
+const lessonDone = new Set();
+let demoState = null; // {chess, cfg, selected, targets, lastMove, orientation}
+let pieceLessonKey = "n";
+
+const PIECE_DEMOS = {
+  p:{fen:"k7/8/8/2p1p3/3P4/8/8/K7 w - - 0 1", sq:"d4", desc:"白兵 d4：只能直进 d5；但可以吃掉斜前方的 c5、e5 黑兵（圆环）。直走斜吃！"},
+  n:{fen:"k7/8/8/8/3N4/8/8/K7 w - - 0 1", sq:"d4", desc:"白马 d4：八个'日'字落点 b3、b5、c2、c6、e2、e6、f3、f5，可越过任何棋子。"},
+  b:{fen:"k7/8/8/8/3B4/8/8/K7 w - - 0 1", sq:"d4", desc:"白象 d4：沿两条斜线驰骋，终生只走白格。"},
+  r:{fen:"k7/8/8/8/3R4/8/8/K7 w - - 0 1", sq:"d4", desc:"白车 d4：横线直线任意格数，开阔局面下威力巨大。"},
+  q:{fen:"k7/8/8/8/3Q4/8/8/K7 w - - 0 1", sq:"d4", desc:"白后 d4：横、直、斜通吃，全盘控制力最强的棋子。"},
+  k:{fen:"k7/8/8/8/3K4/8/8/8 w - - 0 1", sq:"d4", desc:"白王 d4：八方各一格。注意王不能走到被攻击的格子，也不能与对方的王相邻。"}
+};
+
+function buildLessonNav(){
+  const nav = $("lesson-nav");
+  nav.querySelectorAll(".lesson-item").forEach(n=>n.remove());
+  LESSONS.forEach((l,i)=>{
+    const b = document.createElement("button");
+    b.className = "lesson-item" + (i===curLesson?" active":"") + (lessonDone.has(i)?" done":"");
+    b.innerHTML = `<span class="num">${lessonDone.has(i)?"✓":(i+1)}</span><span class="lbl">${l.title}</span>`;
+    b.onclick = ()=>{ curLesson = i; renderLesson(); };
+    nav.appendChild(b);
+  });
+}
+
+function renderLesson(){
+  buildLessonNav();
+  const l = LESSONS[curLesson];
+  const body = $("lesson-body");
+  body.innerHTML = `
+    <h2 class="serif">${l.title}</h2>
+    <div class="sub">${l.sub}</div>
+    ${l.html}
+    <div class="lesson-footer">
+      <button class="btn" id="btn-prev" ${curLesson===0?"disabled":""}>← 上一课</button>
+      <span class="progress-text">第 ${curLesson+1} / ${LESSONS.length} 课</span>
+      <button class="btn primary" id="btn-next">${curLesson===LESSONS.length-1?"去 AI 对练 ⚔️":"下一课 →"}</button>
+    </div>`;
+  $("btn-prev").onclick = ()=>{ if(curLesson>0){curLesson--;renderLesson();} };
+  $("btn-next").onclick = ()=>{
+    lessonDone.add(curLesson);
+    if(curLesson < LESSONS.length-1){ curLesson++; renderLesson(); }
+    else location.hash = "#play";
+  };
+  setupDemo(l);
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+
+function setupDemo(l){
+  demoState = null;
+  if(!l.demo) return;
+  const idx = curLesson+1;
+  if(l.demo.type==="static"){
+    const chess = l.demo.fen==="start" ? new Chess() : new Chess(l.demo.fen);
+    renderBoard($("demo-board-"+idx), chess, {orientation:"w", markers:l.demo.markers||[]});
+  }
+  else if(l.demo.type==="pieces"){
+    const tabs = $("piece-tabs");
+    tabs.innerHTML = "";
+    Object.keys(PIECE_DEMOS).forEach(k=>{
+      const b = document.createElement("button");
+      b.className = "piece-tab" + (k===pieceLessonKey?" active":"");
+      b.innerHTML = `<span class="g">${GLYPH[k]}</span>${CN_NAME[k]}`;
+      b.onclick = ()=>{ pieceLessonKey = k; setupDemo(l); };
+      tabs.appendChild(b);
+    });
+    const pd = PIECE_DEMOS[pieceLessonKey];
+    const chess = new Chess(pd.fen);
+    const targets = chess.moves({square:pd.sq, verbose:true});
+    renderBoard($("demo-board-"+idx), chess, {orientation:"w", selected:pd.sq, targets});
+    $("piece-desc").textContent = pd.desc;
+  }
+  else if(l.demo.type==="play"){
+    demoState = {
+      chess: new Chess(l.demo.fen), cfg: l.demo,
+      selected:null, targets:[], lastMove:null, orientation:"w", boardId:"demo-board-"+idx
+    };
+    renderDemo();
+  }
+  else if(l.demo.type==="quiz"){
+    buildQuiz();
+  }
+}
+
+function renderDemo(){
+  if(!demoState) return;
+  renderBoard($(demoState.boardId), demoState.chess, {
+    orientation: demoState.orientation,
+    selected: demoState.selected,
+    targets: demoState.targets,
+    lastMove: demoState.lastMove,
+    onSquare: onDemoSquare
+  });
+}
+
+function resetDemo(){
+  const l = LESSONS[curLesson];
+  if(l.demo && l.demo.type==="play"){
+    const s = $(l.demo.successId); if(s) s.classList.remove("show");
+    setupDemo(l);
+  }
+}
+
+function onDemoSquare(sq){
+  if(!demoState) return;
+  const g = demoState.chess;
+  if(demoState.selected){
+    const mv = demoState.targets.find(m=>m.to===sq);
+    if(mv){
+      if(mv.flags.includes("p")){
+        const from = demoState.selected;
+        openPromotion(g.turn(), t=>finishDemoMove({from,to:sq,promotion:t}));
+        return;
+      }
+      finishDemoMove({from:demoState.selected,to:sq});
+      return;
+    }
+  }
+  const p = g.get(sq);
+  if(p && p.color===g.turn()){
+    demoState.selected = sq;
+    demoState.targets = g.moves({square:sq, verbose:true});
+  }else{
+    demoState.selected = null;
+    demoState.targets = [];
+  }
+  renderDemo();
+}
+
+function finishDemoMove(m){
+  const g = demoState.chess;
+  const mv = g.move(m);
+  if(!mv) return;
+  mv.captured ? sndCap() : sndMove();
+  demoState.lastMove = mv;
+  demoState.selected = null;
+  demoState.targets = [];
+  renderDemo();
+  const goal = demoState.cfg.goal;
+  let ok = false;
+  if(goal==="promotion" && mv.flags.includes("p")) ok = true;
+  if(goal==="enpassant" && mv.flags.includes("e")) ok = true;
+  if(goal==="castle" && (mv.flags.includes("k")||mv.flags.includes("q"))) ok = true;
+  if(goal==="checkmate" && g.in_checkmate()) ok = true;
+  if(ok){
+    const s = $(demoState.cfg.successId);
+    if(s) s.classList.add("show");
+    sndEnd();
+  } else if(g.in_check()) sndCheck();
+}
+
+/* ---------- 测验 ---------- */
+let quizAnswered = 0, quizCorrect = 0;
+function buildQuiz(){
+  quizAnswered = 0; quizCorrect = 0;
+  const box = $("quiz-box"); if(!box) return;
+  $("quiz-score").classList.remove("show");
+  box.innerHTML = "";
+  QUIZ.forEach((item,qi)=>{
+    const q = document.createElement("div");
+    q.className = "quiz-q";
+    const h = document.createElement("h4"); h.textContent = item.q; q.appendChild(h);
+    const opts = document.createElement("div"); opts.className = "quiz-opts";
+    const expl = document.createElement("div"); expl.className = "quiz-expl";
+    expl.textContent = "✔ 解析：" + item.expl;
+    item.opts.forEach((op,oi)=>{
+      const b = document.createElement("button");
+      b.className = "quiz-opt"; b.textContent = op;
+      b.onclick = ()=>{
+        if(opts.dataset.done) return;
+        opts.dataset.done = "1";
+        opts.querySelectorAll(".quiz-opt").forEach(x=>x.disabled=true);
+        if(oi===item.a){ b.classList.add("correct"); quizCorrect++; beep(660,.15,"sine",.07); }
+        else{ b.classList.add("wrong"); opts.children[item.a].classList.add("correct"); beep(200,.2,"triangle",.08); }
+        expl.classList.add("show");
+        quizAnswered++;
+        if(quizAnswered===QUIZ.length){
+          const sc = $("quiz-score");
+          sc.textContent = `测验完成：${quizCorrect} / ${QUIZ.length} 题正确` + (quizCorrect===QUIZ.length?" 🏆 满分结业！去 AI 对练实战吧！":quizCorrect>=Math.ceil(QUIZ.length*0.6)?" 👍 不错！复习错题后即可上阵。":" 📖 建议回头复习相关课程再战。");
+          sc.classList.add("show");
+          if(quizCorrect>=Math.ceil(QUIZ.length*0.6)) lessonDone.add(curLesson), buildLessonNav();
+          if(quizCorrect===QUIZ.length) sndEnd();
+        }
+      };
+      opts.appendChild(b);
+    });
+    q.appendChild(opts); q.appendChild(expl);
+    box.appendChild(q);
+  });
+}
+
+/* ============================================================
+   AI 对练
+============================================================ */
+let game = null;
+let playerColor = "w";
+let aiLevel = "beginner";
+let orientation = "w";
+let selected = null, targets = [], lastMove = null;
+let thinking = false, gameOver = false, started = false;
+let hintSquares = null;
+
+function buildDiffGrid(){
+  const grid = $("diff-grid");
+  grid.innerHTML = "";
+  Object.entries(LEVELS).forEach(([k,cfg])=>{
+    const b = document.createElement("button");
+    b.className = "diff-btn" + (k===aiLevel?" active":"");
+    b.innerHTML = `<span class="emoji">${cfg.emoji}</span><span class="name">${cfg.name}</span><span class="desc">${cfg.desc.replace("\n","<br>")}</span>`;
+    b.onclick = ()=>{
+      aiLevel = k;
+      buildDiffGrid();
+      if(started && !gameOver) setStatus(`难度已切换为「${cfg.name}」，下一手生效`);
+    };
+    grid.appendChild(b);
+  });
+}
+
+function setPlayerColor(c){
+  playerColor = c;
+  $("color-w").classList.toggle("active", c==="w");
+  $("color-b").classList.toggle("active", c==="b");
+}
+
+function setStatus(txt, cls){
+  const s = $("status-line");
+  s.textContent = txt;
+  s.className = "status-line" + (cls?" "+cls:"");
+}
+
+function newGame(){
+  game = new Chess();
+  orientation = playerColor;
+  selected = null; targets = []; lastMove = null; hintSquares = null;
+  thinking = false; gameOver = false; started = true;
+  $("gameover").classList.remove("show");
+  renderPlay();
+  updateHistory();
+  if(game.turn() !== playerColor){
+    setStatus(`对局开始 · AI（${LEVELS[aiLevel].name}）执白先行`);
+    aiTurn();
+  }else{
+    setStatus("对局开始 · 轮到你走棋（点击棋子查看可走位置）");
+  }
+}
+
+function renderPlay(){
+  if(!game) game = new Chess();
+  renderBoard($("play-board"), game, {
+    orientation, selected, targets, lastMove, hint: hintSquares,
+    onSquare: onPlaySquare
+  });
+  renderPlayerBars();
+}
+
+function renderPlayerBars(){
+  const topColor = orientation==="w" ? "b" : "w";
+  const botColor = orientation;
+  $("bar-top").innerHTML = playerBarHTML(topColor);
+  $("bar-bottom").innerHTML = playerBarHTML(botColor);
+}
+
+function playerBarHTML(color){
+  const isAI = color !== playerColor;
+  const name = isAI ? `AI · ${LEVELS[aiLevel].name}` : "你";
+  const avatar = isAI ? "🤖" : "🧑";
+  const turn = started && !gameOver && game.turn()===color;
+  // 计算被吃掉的对方棋子（即本方吃到的子）
+  const init = {p:8,n:2,b:2,r:2,q:1};
+  const cnt = {p:0,n:0,b:0,r:0,q:0};
+  const enemy = color==="w"?"b":"w";
+  let myMat = 0, enMat = 0;
+  game.board().flat().forEach(p=>{
+    if(!p) return;
+    if(p.color===enemy && p.type!=="k") cnt[p.type]++;
+    if(p.type!=="k"){ if(p.color===color) myMat+=VAL[p.type]; else enMat+=VAL[p.type]; }
+  });
+  let caps = "";
+  ["q","r","b","n","p"].forEach(t=>{
+    const missing = init[t]-cnt[t];
+    for(let i=0;i<missing;i++) caps += GLYPH[t];
+  });
+  const adv = myMat-enMat;
+  const think = isAI && thinking ? `<span class="thinking show"><span class="spinner"></span>思考中…</span>` : "";
+  return `<span class="avatar">${avatar}</span><span class="who">${name}</span>
+    <span style="font-size:12px;color:var(--txt2)">${color==="w"?"执白":"执黑"}</span>
+    <span class="captured">${caps}</span>${adv>0?`<span class="adv">+${Math.round(adv/100)}</span>`:""}
+    ${think}<span class="turn-dot ${turn?"on":""}"></span>`;
+}
+
+function onPlaySquare(sq){
+  if(!started || thinking || gameOver) return;
+  if(game.turn() !== playerColor) return;
+  hintSquares = null;
+  if(selected){
+    const mv = targets.find(m=>m.to===sq);
+    if(mv){
+      if(mv.flags.includes("p")){
+        const from = selected;
+        openPromotion(playerColor, t=>doPlayerMove({from,to:sq,promotion:t}));
+        return;
+      }
+      doPlayerMove({from:selected,to:sq});
+      return;
+    }
+  }
+  const p = game.get(sq);
+  if(p && p.color===playerColor){
+    selected = sq;
+    targets = game.moves({square:sq, verbose:true});
+  }else{
+    selected = null; targets = [];
+  }
+  renderPlay();
+}
+
+function doPlayerMove(m){
+  const mv = game.move(m);
+  if(!mv) return;
+  mv.captured ? sndCap() : sndMove();
+  lastMove = mv; selected = null; targets = [];
+  renderPlay(); updateHistory();
+  if(checkEnd()) return;
+  if(game.in_check()){ sndCheck(); setStatus("将军！AI 需要应将…"); }
+  aiTurn();
+}
+
+function aiTurn(){
+  thinking = true;
+  renderPlayerBars();
+  setStatus(`AI（${LEVELS[aiLevel].name}）思考中…`);
+  setTimeout(()=>{
+    let mv = null;
+    try{ mv = pickMove(game, LEVELS[aiLevel]); }catch(e){ console.error(e); }
+    if(!mv){ thinking=false; checkEnd(); return; }
+    const played = game.move(mv);
+    thinking = false;
+    if(played){
+      played.captured ? sndCap() : sndMove();
+      lastMove = played;
+    }
+    renderPlay(); updateHistory();
+    if(checkEnd()) return;
+    if(game.in_check()){ sndCheck(); setStatus("⚠️ 将军！你必须立即解除将军（躲王 / 垫子 / 吃子）","check"); }
+    else setStatus("轮到你走棋");
+  }, 60);
+}
+
+function checkEnd(){
+  if(!game.game_over()) return false;
+  gameOver = true;
+  captureSnapshot();
+  let emoji, title, desc, loser = null;
+  if(game.in_checkmate()){
+    loser = game.turn();
+    if(loser !== playerColor){ emoji="🏆"; title="将杀！你赢了"; desc=`你击败了 ${LEVELS[aiLevel].name} 难度的 AI${aiLevel!=="master"?"，试试更高难度吧！":"，太强了！"}`; }
+    else{ emoji="💪"; title="你被将杀了"; desc="别灰心，点几手'悔棋'复盘一下，看看哪一步开始失控。"; }
+    sndEnd();
+  }else{
+    emoji="🤝"; title="和棋";
+    if(game.in_stalemate()) desc="逼和：一方无子可动且未被将军。";
+    else if(game.insufficient_material()) desc="子力不足，双方都无法将杀。";
+    else if(game.in_threefold_repetition()) desc="同一局面出现三次。";
+    else desc="50 回合内无吃子、无动兵。";
+  }
+  $("go-emoji").textContent = emoji;
+  $("go-title").textContent = title;
+  $("go-desc").textContent = desc;
+  $("gameover").classList.add("show");
+  setStatus(title + " · " + desc, loser===playerColor?"":"good");
+  renderPlayerBars();
+  return true;
+}
+
+function undoMove(){
+  if(!started || thinking || !game || game.history().length===0) return;
+  game.undo();
+  if(game.turn()!==playerColor && game.history().length>0) game.undo();
+  gameOver = false;
+  $("gameover").classList.remove("show");
+  selected = null; targets = []; hintSquares = null;
+  const h = game.history({verbose:true});
+  lastMove = h.length ? h[h.length-1] : null;
+  renderPlay(); updateHistory();
+  if(game.turn()!==playerColor){ aiTurn(); }
+  else setStatus("已悔棋 · 轮到你走棋");
+}
+
+function showHint(){
+  if(!started || thinking || gameOver || game.turn()!==playerColor) return;
+  setStatus("正在计算推荐着法…");
+  setTimeout(()=>{
+    const mv = pickMove(game, {depth:3, qdepth:2, time:900, jitter:0, randomChance:0});
+    if(mv){
+      hintSquares = [mv.from, mv.to];
+      renderPlay();
+      setStatus(`💡 推荐着法：${CN_NAME[mv.piece]} ${mv.from} → ${mv.to}（蓝色高亮，仅供参考）`,"good");
+      setTimeout(()=>{ hintSquares=null; renderPlay(); }, 2600);
+    }
+  }, 30);
+}
+
+function flipBoard(){
+  orientation = orientation==="w"?"b":"w";
+  renderPlay();
+}
+
+function updateHistory(){
+  const h = game.history();
+  const el = $("hist");
+  if(h.length===0){ el.innerHTML = '<div class="empty">尚未开始走子</div>'; return; }
+  let rows = "";
+  for(let i=0;i<h.length;i+=2){
+    rows += `<tr><td class="no">${i/2+1}.</td><td class="mv">${h[i]}</td><td class="mv">${h[i+1]||""}</td></tr>`;
+  }
+  el.innerHTML = `<table>${rows}</table>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ============================================================
+   AI 助手：聊天问答 + 本地引擎棋谱分析 + 大模型讲解
+============================================================ */
+const ARK_BASE = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+/* 内置密钥：站长提供，打开即用。更换密钥只需修改这一行。 */
+const EMBEDDED_ARK_KEY = "ark-3410b228-cdbb-478b-a31a-2d6ba7366c0a-a2546";
+const DEFAULT_MODEL = "doubao-seed-2-1-lite-260915";
+const REVIEW_CFG = {depth:2, qdepth:1, time:180, jitter:0, randomChance:0};
+const ENGINE_MAX_PLIES = 120;
+const tick = ()=>new Promise(r=>setTimeout(r,0));
+
+let lastSnapshot = null;
+let chat = { messages:[], busy:false };
+
+function captureSnapshot(){
+  if(!game || game.history().length===0) return null;
+  let result = "*";
+  if(game.in_checkmate()) result = game.turn()===playerColor ? "0-1" : "1-0";
+  else if(game.game_over()) result = "1/2-1/2";
+  lastSnapshot = {
+    moves: game.history({verbose:true}),
+    result, playerColor, aiLevel,
+    white: playerColor==="w" ? "你" : "AI·"+LEVELS[aiLevel].name,
+    black: playerColor==="b" ? "你" : "AI·"+LEVELS[aiLevel].name
+  };
+  return lastSnapshot;
+}
+
+function classifyEval(delta, missedMate){
+  if(missedMate) return {label:"漏杀", cls:"b-blunder"};
+  if(delta < -20) return {label:"妙手", cls:"b-brilliant"};
+  if(delta <= 15) return {label:"好棋", cls:"b-good"};
+  if(delta <= 50) return {label:"稳健", cls:"b-ok"};
+  if(delta <= 150) return {label:"次优", cls:"b-soft"};
+  if(delta <= 300) return {label:"失误", cls:"b-mist"};
+  if(delta <= 500) return {label:"严重失误", cls:"b-bad"};
+  return {label:"漏招", cls:"b-blunder"};
+}
+
+async function evaluateSnapshot(snap, onProgress){
+  const g = new Chess();
+  const evals = [];
+  const total = snap.moves.length;
+  for(let i=0;i<total;i++){
+    const mv = snap.moves[i];
+    const side = g.turn();
+    const best = pickMove(g, REVIEW_CFG);
+    let bestScore = 0, bestSan="—", bestFrom="", bestTo="";
+    if(best){
+      g.move(best);
+      bestScore = -evaluate(g);
+      bestSan = best.san; bestFrom = best.from; bestTo = best.to;
+      g.undo();
+    }
+    g.move(mv);
+    const actualScore = -evaluate(g);
+    const missedMate = bestScore >= 90000 && actualScore < 90000;
+    const delta = Math.max(0, Math.round(bestScore - actualScore));
+    const cls = classifyEval(delta, missedMate);
+    evals.push({
+      san: mv.san, from: mv.from, to: mv.to, color: side,
+      bestSan, bestFrom, bestTo, bestScore, actualScore,
+      delta, label: cls.label, cls: cls.cls, move: mv
+    });
+    if(onProgress) onProgress(i+1, total);
+    await tick();
+  }
+  return evals;
+}
+
+/* ---------- 棋谱分析与助手入口 ---------- */
+function pgnFromSnapshot(s){
+  const sans=s.moves.map(m=>m.san);
+  let body="";
+  for(let i=0;i<sans.length;i+=2) body+=`${i/2+1}. ${sans[i]}${sans[i+1]?" "+sans[i+1]:""} `;
+  return `[White "${s.white}"]\n[Black "${s.black}"]\n[Result "${s.result}"]\n${body.trim()}`;
+}
+
+function notableFromEvals(evals, playerColor){
+  const lines=[];
+  evals.forEach((e,i)=>{
+    if(e.delta>=150 || e.label==="妙手"){
+      const round=Math.floor(i/2)+1;
+      const who = playerColor ? (e.color===playerColor?"你":"对手") : (e.color==="w"?"白方":"黑方");
+      lines.push(`- 第${round}回合 ${who}走 ${e.san}；引擎推荐 ${e.bestSan||"—"}；局面损失约 ${Math.round(e.delta/100)} 个兵；评级：${e.label}`);
+    }
+  });
+  return lines.join("\n") || "- 本局没有出现损失超过 1.5 个兵的明显失误。";
+}
+
+function engineSummary(snap, evals, truncated){
+  const resultText = snap.result==="1-0"?"白方胜":snap.result==="0-1"?"黑方胜":snap.result==="1/2-1/2"?"和棋":"进行中/未知";
+  const counts={};
+  evals.forEach(e=>{ counts[e.label]=(counts[e.label]||0)+1; });
+  const countStr=Object.keys(counts).map(k=>`${k}×${counts[k]}`).join("、");
+  return `【本地引擎评估】（确定性搜索，分差以兵为单位）\n对局结果：${resultText}；共评估 ${evals.length} 手${truncated?`（棋谱较长，仅评估前 ${ENGINE_MAX_PLIES} 手）`:""}。\n评级统计：${countStr||"无"}。\n关键着法：\n${notableFromEvals(evals, snap.playerColor)}\n注：以上优劣判断来自本地引擎，请基于这些事实讲解，不要编造棋谱中不存在的走法。`;
+}
+
+function parsePGNText(text){
+  /* chess.js 0.10.3 要求头部标签与着法之间有空行，先规范化 */
+  const lines=text.replace(/\r\n?/g,"\n").split("\n");
+  const headerLines=[], moveLines=[];
+  for(const l of lines){ (l.trim().startsWith("[")?headerLines:moveLines).push(l); }
+  let movesText=moveLines.join("\n").trim();
+  const first=movesText.match(/1\.\s*[a-hKQRBN]/);
+  if(first) movesText=movesText.slice(first.index);
+  const pgn=(headerLines.length?headerLines.join("\n")+"\n\n":"")+movesText;
+  const g=new Chess();
+  let ok=false;
+  try{ ok=g.load_pgn(pgn, {sloppy:true}); }catch(e){ ok=false; }
+  if(!ok) return null;
+  const moves=g.history({verbose:true});
+  if(moves.length<2) return null;
+  const header=g.header()||{};
+  return {
+    moves,
+    result: header.Result || "*",
+    playerColor: null,
+    aiLevel: null,
+    white: header.White || "白方",
+    black: header.Black || "黑方"
+  };
+}
+
+async function analyzeAndSend(snap, displayText){
+  chat.busy=true;
+  pushUser(displayText, "已附本地引擎评估");
+  setChatStatus("本地引擎正在逐局面评估…");
+  let truncated=false;
+  let workSnap=snap;
+  if(snap.moves.length>ENGINE_MAX_PLIES){
+    truncated=true;
+    workSnap=Object.assign({}, snap, {moves:snap.moves.slice(0,ENGINE_MAX_PLIES)});
+  }
+  const evals=await evaluateSnapshot(workSnap, (i,t)=>setChatStatus(`本地引擎评估中… ${i}/${t}`));
+  const block=engineSummary(workSnap, evals, truncated);
+  await requestAssistant(displayText+"\n\n"+block);
+}
+
+async function askAssistantAboutGame(){
+  const snap=(started && game && game.history().length>0) ? captureSnapshot() : lastSnapshot;
+  location.hash="#assistant";
+  if(!snap){ pushAiNote("还没有可分析的对局。先去「AI 对练」下一盘，或直接把 PGN 棋谱粘贴到下方输入框发给我。"); return; }
+  if(chat.busy){ setChatStatus("助手正在回答上一个问题，请稍候…"); return; }
+  const pgn=pgnFromSnapshot(snap);
+  await analyzeAndSend(snap, "请帮我分析这盘对局：指出关键失误、解释原因，并给出改进建议。\n\n"+pgn);
+}
+
+/* ---------- 聊天渲染与大模型调用 ---------- */
+function getApiKey(){ return localStorage.getItem("chess_ark_key") || EMBEDDED_ARK_KEY; }
+function getApiModel(){ return localStorage.getItem("chess_ark_model") || DEFAULT_MODEL; }
+
+const SYSTEM_PROMPT = "你是「国际象棋 AI 助手」，一位专业、耐心的国际象棋教练，面向新手到初级棋手，用通俗简体中文回答。范围：国际象棋规则、开局、中局战术、残局、子力价值、棋谱解读、训练建议。要求：1) 术语首次出现时用一句话解释；2) 涉及具体着法时使用标准代数记谱（如 Nf3、exd5）并说明含义；3) 若用户消息附有【本地引擎评估】数据，棋步好坏以该数据为准，你负责解释原因与改进思路，不要自行编造引擎结论；4) 不要编造棋谱中不存在的走法或虚构对局；5) 与国际象棋无关的问题，礼貌说明你只回答国际象棋相关问题；6) 回答用 Markdown，条理清晰，篇幅适中。";
+
+const QUICK_QUESTIONS = ["马为什么适合捉双？","王车易位有什么条件？","推荐一个适合新手的开局","单后怎么把对方王将死？","什么是通路兵？"];
+
+function escapeHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+function setChatStatus(t){ $("chat-status").textContent=t||""; }
+
+function pushUser(display, attach){
+  chat.messages.push({role:"user", content:display, display, attach:attach||""});
+  renderChat();
+}
+function pushAiNote(text){
+  chat.messages.push({role:"assistant", content:text, note:true});
+  renderChat();
+}
+
+function renderChat(){
+  const list=$("chat-list");
+  if(!chat.messages.length){
+    list.innerHTML = `<div class="chat-empty">👋 我是你的国际象棋 AI 助手<br>规则、开局、战术、残局，随便问；也可以粘贴 PGN 棋谱让我分析。<div class="chat-chips">${QUICK_QUESTIONS.map(q=>`<button onclick="quickAsk('${q}')">${q}</button>`).join("")}</div></div>`;
+    return;
+  }
+  let html="";
+  for(const m of chat.messages){
+    if(m.role==="user"){
+      html+=`<div class="msg user"><div class="avatar">🧑</div><div class="bubble">${escapeHtml(m.display||m.content)}${m.attach?`<br><span class="attach">📎 ${m.attach}</span>`:""}</div></div>`;
+    }else{
+      const body = m.pending ? '<span class="report loading">思考中…</span>'
+        : m.error ? `<div class="report err">⚠️ ${escapeHtml(m.content)}</div>`
+        : `<div class="report">${renderMarkdown(m.content)}</div>`;
+      html+=`<div class="msg ai"><div class="avatar">🤖</div><div class="bubble">${body}</div></div>`;
+    }
+  }
+  list.innerHTML=html;
+  list.scrollTop=list.scrollHeight;
+}
+
+function quickAsk(q){ $("chat-input").value=q; sendChat(); }
+
+function clearChat(){
+  if(chat.busy){ setChatStatus("正在回答中，稍后再清空。"); return; }
+  chat.messages=[]; renderChat(); setChatStatus("");
+}
+
+async function sendChat(){
+  const input=$("chat-input");
+  const text=input.value.trim();
+  if(!text) return;
+  if(chat.busy){ setChatStatus("助手正在回答上一个问题，请稍候…"); return; }
+  input.value="";
+  const looksLikePGN = /\d+\.\s*[a-hKQRBN]/.test(text) || /\[White|\[Event/.test(text);
+  if(looksLikePGN){
+    const snap=parsePGNText(text);
+    if(snap){ await analyzeAndSend(snap, text); return; }
+  }
+  chat.busy=true;
+  pushUser(text, "");
+  await requestAssistant(text);
+}
+
+async function requestAssistant(userContent){
+  /* 把最终发送内容（含引擎数据）写回最后一条用户消息，保证多轮上下文一致 */
+  for(let i=chat.messages.length-1;i>=0;i--){
+    if(chat.messages[i].role==="user"){ chat.messages[i].content=userContent; break; }
+  }
+  const aiMsg={role:"assistant", content:"", pending:true};
+  chat.messages.push(aiMsg);
+  renderChat();
+  setChatStatus("正在调用大模型，通常需要十几秒…");
+  const history=chat.messages.filter(m=>!m.pending && !m.note && !m.error).slice(-12)
+    .map(m=>({role:m.role, content:m.content}));
+  try{
+    const resp=await fetch(ARK_BASE,{method:"POST",headers:{Authorization:"Bearer "+getApiKey(),"Content-Type":"application/json"},
+      body:JSON.stringify({model:getApiModel(),messages:[{role:"system",content:SYSTEM_PROMPT},...history],max_tokens:1600,temperature:0.7,thinking:{type:"disabled"}})});
+    if(resp.status===401) throw new Error("API Key 无效或已被吊销（HTTP 401）。请在设置中更换密钥。");
+    if(resp.status===404) throw new Error("模型未开通或模型 ID 不存在（HTTP 404）。请在设置中更换模型，或联系站长开通。");
+    if(resp.status===429) throw new Error("请求频率或额度受限（HTTP 429），请稍后再试。");
+    if(!resp.ok){ const t=await resp.text(); throw new Error("请求失败 HTTP "+resp.status+"："+t.slice(0,150)); }
+    const data=await resp.json();
+    const content=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||"";
+    if(!content) throw new Error("返回内容为空，请重试。");
+    aiMsg.content=content; aiMsg.pending=false;
+  }catch(e){
+    aiMsg.pending=false; aiMsg.error=true;
+    let msg=(e&&e.message)||String(e);
+    if(/Failed to fetch|NetworkError|Load failed/i.test(msg)){
+      aiMsg.content="请求未能完成（Failed to fetch），正在自动诊断原因…";
+      renderChat();
+      msg=await diagnoseFetchFailure();
+    }
+    aiMsg.content=msg;
+  }
+  chat.busy=false;
+  setChatStatus("");
+  renderChat();
+}
+
+/* 区分「网络到不了服务器」与「CORS/打开方式拦截」，任意设备通用 */
+async function diagnoseFetchFailure(){
+  const proto=location.protocol;
+  let reachable=false;
+  try{
+    await fetch("https://ark.cn-beijing.volces.com/",{method:"GET",mode:"no-cors",cache:"no-store"});
+    reachable=true;
+  }catch(err){ reachable=false; }
+  let cause, fix;
+  if(!reachable){
+    cause="设备无法连接到方舟服务器（网络层被拦截、断网或防火墙限制）。";
+    fix="换一个网络再试（例如手机开热点给电脑用）；检查防火墙/安全软件是否拦截了 ark.cn-beijing.volces.com。";
+  }else{
+    cause="服务器能连上，但当前打开方式触发了浏览器跨域（CORS）拦截，请求被浏览器挡住。";
+    fix="请用浏览器直接打开本 HTML 文件（双击，或右键→打开方式→Chrome/Edge），不要在应用内置预览、沙箱或 iframe 里打开。";
+  }
+  return "【自动诊断】\n页面来源协议："+proto+"｜服务器连通性："+(reachable?"可达":"不可达")+"\n原因："+cause+"\n解决办法："+fix;
+}
+
+function fmtInline(s){
+  return s.replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/`([^`]+)`/g,"<code>$1</code>");
+}
+
+function renderMarkdown(md){
+  const esc = md.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const lines = esc.split(/\r?\n/);
+  let html="", inList=false;
+  const closeList=()=>{ if(inList){ html+="</ul>"; inList=false; } };
+  for(const raw of lines){
+    const line=raw.trim();
+    if(/^[-*] /.test(line)){
+      if(!inList){ html+="<ul>"; inList=true; }
+      html+=`<li>${fmtInline(line.slice(2))}</li>`;
+    }else if(/^\d+\. /.test(line)){
+      if(!inList){ html+="<ul>"; inList=true; }
+      html+=`<li>${fmtInline(line.replace(/^\d+\. /,""))}</li>`;
+    }else if(line===""){
+      closeList();
+    }else if(/^#{1,4}\s+/.test(line)){
+      closeList();
+      html+=`<h4>${fmtInline(line.replace(/^#{1,4}\s+/,""))}</h4>`;
+    }else if(/^&gt;\s?/.test(line)){
+      closeList();
+      html+=`<p style="border-left:3px solid var(--gold);padding-left:10px;color:var(--txt2)">${fmtInline(line.replace(/^&gt;\s?/,""))}</p>`;
+    }else if(/^[一二三四五六七八九十]、/.test(line)){
+      closeList();
+      html+=`<h4>${fmtInline(line)}</h4>`;
+    }else{
+      closeList();
+      html+=`<p>${fmtInline(line)}</p>`;
+    }
+  }
+  closeList();
+  return html;
+}
+
+function toggleAssistantSettings(force){
+  const el=$("assistant-settings");
+  const show = force!==undefined ? force : el.style.display==="none";
+  el.style.display = show?"block":"none";
+  if(show){ $("api-key").value=localStorage.getItem("chess_ark_key")||""; $("api-model").value=getApiModel(); }
+}
+
+function saveApiSettings(){
+  const k=$("api-key").value.trim();
+  if(k) localStorage.setItem("chess_ark_key", k);
+  else localStorage.removeItem("chess_ark_key");
+  localStorage.setItem("chess_ark_model", $("api-model").value);
+  setChatStatus("设置已保存。");
+}
+
+async function testApiConnection(){
+  saveApiSettings();
+  setChatStatus("正在测试连接…");
+  try{
+    const resp=await fetch(ARK_BASE,{method:"POST",headers:{Authorization:"Bearer "+getApiKey(),"Content-Type":"application/json"},
+      body:JSON.stringify({model:getApiModel(),messages:[{role:"user",content:"回复：连接正常"}],max_tokens:16,thinking:{type:"disabled"}})});
+    if(resp.status===401) throw new Error("密钥无效（401）");
+    if(resp.status===404) throw new Error("模型未开通或不存在（404）");
+    if(!resp.ok) throw new Error("HTTP "+resp.status);
+    const d=await resp.json();
+    setChatStatus("✅ 连接成功，模型回复："+((d.choices[0].message.content||"").trim()));
+  }catch(e){
+    let msg=(e.message||String(e));
+    if(/Failed to fetch|NetworkError|Load failed/i.test(msg)) msg+="。请用浏览器直接打开本文件，并关闭代理/VPN 后重试。";
+    setChatStatus("⚠️ 连接失败："+msg);
+  }
+}
+
+/* ============================================================
+   初始化
+============================================================ */
+window.addEventListener("DOMContentLoaded", ()=>{
+  if(typeof Chess === "undefined"){
+    $("load-error").style.display = "block";
+    return;
+  }
+  game = new Chess();
+  buildDiffGrid();
+  renderLesson();
+  renderPlay();
+  renderChat();
+  $("chat-input").addEventListener("keydown", e=>{
+    if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendChat(); }
+  });
+  route();
+  if(!location.hash) location.hash = "#tutorial";
+});
+</script>
+</body>
+</html>
